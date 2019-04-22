@@ -193,7 +193,7 @@ mod urandom {
     pub fn fill(dest: &mut [u8]) -> Result<(), error::Unspecified> {
         #[cfg(target_os = "redox")]
         static RANDOM_PATH: &str = "rand:";
-        #[cfg(unix)]
+        #[cfg(all(unix, not(target_os = "redox")))]
         static RANDOM_PATH: &str = "/dev/urandom";
 
         lazy_static! {
