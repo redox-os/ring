@@ -332,6 +332,29 @@ mod sysrand_or_urandom {
     }
 }
 
+#[cfg(target_os = "redox")]
+mod urandom {
+    use crate::error;
+    use std;
+
+    pub fn fill(dest: &mut [u8]) -> Result<(), error::Unspecified> {
+        static RANDOM_PATH: &str = "rand:";
+
+        lazy_static! {
+            static ref FILE: Result<std::fs::File, std::io::Error> =
+                std::fs::File::open(RANDOM_PATH);
+        }
+
+        match *FILE {
+            Ok(ref file) => {
+                use std::io::Read;
+                (&*file).read_exact(dest).map_err(|_| error::Unspecified)
+            },
+            Err(_) => Err(error::Unspecified),
+        }
+    }
+}
+
 #[cfg(any(
     all(
         any(target_os = "android", target_os = "linux"),
