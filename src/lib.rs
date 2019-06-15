@@ -57,7 +57,6 @@
     unused_import_braces,
     unused_results,
     variant_size_differences,
-    warnings
 )]
 #![no_std]
 #![cfg_attr(feature = "internal_benches", allow(unstable_features))]
