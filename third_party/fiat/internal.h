@@ -126,7 +126,7 @@ void GFp_x25519_ge_double_scalarmult_vartime(ge_p2 *r, const uint8_t *a,
                                              const ge_p3 *A,
                                              const uint8_t *b);
 int GFp_x25519_ge_frombytes_vartime(ge_p3 *h, const uint8_t *s);
-void GFp_x25519_ge_scalarmult_base(ge_p3 *h, const uint8_t a[32]);
+void GFp_x25519_ge_scalarmult_base(ge_p3 *h, const uint8_t *a);
 void GFp_x25519_sc_muladd(uint8_t *s, const uint8_t *a, const uint8_t *b,
                           const uint8_t *c);
 void GFp_x25519_sc_mask(uint8_t a[32]);
