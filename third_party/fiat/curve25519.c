@@ -3010,7 +3010,7 @@ void GFp_x25519_fe_neg(fe *f) {
   fe_carry(f, &t);
 }
 
-void GFp_x25519_fe_tobytes(uint8_t s[32], const fe *h) {
+void GFp_x25519_fe_tobytes(uint8_t *s, const fe *h) {
   fe_tobytes(s, h);
 }
 
