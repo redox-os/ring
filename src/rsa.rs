@@ -17,21 +17,16 @@
 // naming conventions. Also the standard camelCase names are used for `KeyPair`
 // components.
 
-/// RSA signatures.
+//! Low-level RSA primitives.
+
 use crate::{
+    arithmetic::bigint,
     bits, error,
     io::{self, der},
     limb,
 };
-use untrusted;
 
-mod padding;
-
-// `RSA_PKCS1_SHA1` is intentionally not exposed.
-pub use self::padding::{
-    RsaEncoding, RSA_PKCS1_SHA256, RSA_PKCS1_SHA384, RSA_PKCS1_SHA512, RSA_PSS_SHA256,
-    RSA_PSS_SHA384, RSA_PSS_SHA512,
-};
+pub(crate) mod padding;
 
 // Maximum RSA modulus size supported for signature verification (in bytes).
 const PUBLIC_KEY_PUBLIC_MODULUS_MAX_LEN: usize = bigint::MODULUS_MAX_LIMBS * limb::LIMB_BYTES;
@@ -42,7 +37,7 @@ const PRIVATE_KEY_PUBLIC_MODULUS_MAX_BITS: bits::BitLength = bits::BitLength::fr
 /// Parameters for RSA verification.
 #[derive(Debug)]
 pub struct RsaParameters {
-    padding_alg: &'static padding::Verification,
+    padding_alg: &'static dyn padding::Verification,
     min_bits: bits::BitLength,
 }
 
@@ -61,10 +56,12 @@ fn parse_public_key(
 // Type-level representation of an RSA public modulus *n*. See
 // `super::bigint`'s modulue-level documentation.
 #[derive(Copy, Clone)]
-pub enum N {}
+enum N {}
 
-pub mod verification;
+unsafe impl bigint::PublicModulus for N {}
 
-pub mod signing;
+pub mod public;
 
-mod bigint;
+pub(crate) mod verification;
+
+pub(crate) mod signing;

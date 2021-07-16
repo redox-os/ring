@@ -109,11 +109,9 @@
 #ifndef OPENSSL_HEADER_CRYPTO_INTERNAL_H
 #define OPENSSL_HEADER_CRYPTO_INTERNAL_H
 
-#include <GFp/base.h> // Must be first.
+#include <ring-core/base.h> // Must be first.
 
-#include <assert.h>
-
-#include <GFp/type_check.h>
+#include "ring-core/check.h"
 
 #if defined(__GNUC__) && \
     (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__) < 40800
@@ -121,26 +119,20 @@
 // Testing for __STDC_VERSION__/__cplusplus doesn't work because 4.7 already
 // reports support for C11.
 #define alignas(x) __attribute__ ((aligned (x)))
-#elif defined(_MSC_VER)
+#elif defined(_MSC_VER) && !defined(__clang__)
 #define alignas(x) __declspec(align(x))
 #else
 #include <stdalign.h>
 #endif
 
-#define OPENSSL_LITTLE_ENDIAN 1
-#define OPENSSL_BIG_ENDIAN 2
-
-#if defined(OPENSSL_X86_64) || defined(OPENSSL_X86) || \
-    (defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) && \
-     __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
-#define OPENSSL_ENDIAN OPENSSL_LITTLE_ENDIAN
-#elif defined(__BYTE_ORDER__) && defined(__ORDER_BIG_ENDIAN__) && \
-      __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-#define OPENSSL_ENDIAN OPENSSL_BIG_ENDIAN
+// Some C compilers require a useless cast when dealing with arrays for the
+// reason explained in
+// https://gustedt.wordpress.com/2011/02/12/const-and-arrays/
+#if defined(__clang__) || defined(_MSC_VER)
+#define RING_CORE_POINTLESS_ARRAY_CONST_CAST(cast)
 #else
-#error "Cannot determine endianness"
+#define RING_CORE_POINTLESS_ARRAY_CONST_CAST(cast) cast
 #endif
-
 
 #if (!defined(_MSC_VER) || defined(__clang__)) && defined(OPENSSL_64_BIT)
 #define BORINGSSL_HAS_UINT128
@@ -183,6 +175,36 @@ typedef uint32_t crypto_word;
 #define CONSTTIME_TRUE_W ~((crypto_word)0)
 #define CONSTTIME_FALSE_W ((crypto_word)0)
 
+// value_barrier_w returns |a|, but prevents GCC and Clang from reasoning about
+// the returned value. This is used to mitigate compilers undoing constant-time
+// code, until we can express our requirements directly in the language.
+//
+// Note the compiler is aware that |value_barrier_w| has no side effects and
+// always has the same output for a given input. This allows it to eliminate
+// dead code, move computations across loops, and vectorize.
+static inline crypto_word value_barrier_w(crypto_word a) {
+#if !defined(OPENSSL_NO_ASM) && (defined(__GNUC__) || defined(__clang__))
+  __asm__("" : "+r"(a) : /* no inputs */);
+#endif
+  return a;
+}
+
+// value_barrier_u32 behaves like |value_barrier_w| but takes a |uint32_t|.
+static inline uint32_t value_barrier_u32(uint32_t a) {
+#if !defined(OPENSSL_NO_ASM) && (defined(__GNUC__) || defined(__clang__))
+  __asm__("" : "+r"(a) : /* no inputs */);
+#endif
+  return a;
+}
+
+// value_barrier_u64 behaves like |value_barrier_w| but takes a |uint64_t|.
+static inline uint64_t value_barrier_u64(uint64_t a) {
+#if !defined(OPENSSL_NO_ASM) && (defined(__GNUC__) || defined(__clang__))
+  __asm__("" : "+r"(a) : /* no inputs */);
+#endif
+  return a;
+}
+
 // constant_time_msb_w returns the given value with the MSB copied to all the
 // other bits.
 static inline crypto_word constant_time_msb_w(crypto_word a) {
@@ -221,38 +243,64 @@ static inline crypto_word constant_time_eq_w(crypto_word a,
 static inline crypto_word constant_time_select_w(crypto_word mask,
                                                    crypto_word a,
                                                    crypto_word b) {
-  return (mask & a) | (~mask & b);
+  // Clang recognizes this pattern as a select. While it usually transforms it
+  // to a cmov, it sometimes further transforms it into a branch, which we do
+  // not want.
+  //
+  // Adding barriers to both |mask| and |~mask| breaks the relationship between
+  // the two, which makes the compiler stick with bitmasks.
+  return (value_barrier_w(mask) & a) | (value_barrier_w(~mask) & b);
 }
 
-// from_be_u32_ptr returns the 32-bit big-endian-encoded value at |data|.
-static inline uint32_t from_be_u32_ptr(const uint8_t *data) {
-  return ((uint32_t)data[0] << 24) |
-         ((uint32_t)data[1] << 16) |
-         ((uint32_t)data[2] << 8) |
-         ((uint32_t)data[3]);
+// Endianness conversions.
+
+#if defined(__GNUC__) && __GNUC__ >= 2
+static inline uint32_t CRYPTO_bswap4(uint32_t x) {
+  return __builtin_bswap32(x);
+}
+#elif defined(_MSC_VER)
+#pragma warning(push, 3)
+#include <stdlib.h>
+#pragma warning(pop)
+#pragma intrinsic(_byteswap_uint64, _byteswap_ulong)
+static inline uint32_t CRYPTO_bswap4(uint32_t x) {
+  return _byteswap_ulong(x);
+}
+#endif
+
+#if !defined(RING_CORE_NOSTDLIBINC)
+#include <string.h>
+#endif
+
+static inline void *OPENSSL_memcpy(void *dst, const void *src, size_t n) {
+#if !defined(RING_CORE_NOSTDLIBINC)
+  if (n == 0) {
+    return dst;
+  }
+  return memcpy(dst, src, n);
+#else
+  unsigned char *d = dst;
+  const unsigned char *s = src;
+  for (size_t i = 0; i < n; ++i) {
+    d[i] = s[i];
+  }
+  return dst;
+#endif
 }
 
-
-// to_be_u32_ptr writes the value |x| to the location |out| in big-endian
-// order.
-static inline void to_be_u32_ptr(uint8_t *out, uint32_t value) {
-  out[0] = (uint8_t)(value >> 24);
-  out[1] = (uint8_t)(value >> 16);
-  out[2] = (uint8_t)(value >> 8);
-  out[3] = (uint8_t)value;
-}
-
-// to_be_u64_ptr writes the value |value| to the location |out| in big-endian
-// order.
-static inline void to_be_u64_ptr(uint8_t *out, uint64_t value) {
-  out[0] = (uint8_t)(value >> 56);
-  out[1] = (uint8_t)(value >> 48);
-  out[2] = (uint8_t)(value >> 40);
-  out[3] = (uint8_t)(value >> 32);
-  out[4] = (uint8_t)(value >> 24);
-  out[5] = (uint8_t)(value >> 16);
-  out[6] = (uint8_t)(value >> 8);
-  out[7] = (uint8_t)value;
+static inline void *OPENSSL_memset(void *dst, int c, size_t n) {
+#if !defined(RING_CORE_NOSTDLIBINC)
+  if (n == 0) {
+    return dst;
+  }
+  return memset(dst, c, n);
+#else
+  unsigned char *d = dst;
+  for (size_t i = 0; i < n; ++i) {
+    d[i] = (unsigned char)c;
+  }
+  return dst;
+#endif
 }
 
 #endif  // OPENSSL_HEADER_CRYPTO_INTERNAL_H

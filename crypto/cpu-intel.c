@@ -54,12 +54,12 @@
  * copied and put under another distribution licence
  * [including the GNU Public Licence.] */
 
-#include <GFp/cpu.h>
+#include <ring-core/cpu.h>
 
 
 #if !defined(OPENSSL_NO_ASM) && (defined(OPENSSL_X86) || defined(OPENSSL_X86_64))
 
-#if defined(_MSC_VER)
+#if defined(_MSC_VER) && !defined(__clang__)
 #pragma warning(push, 3)
 #include <immintrin.h>
 #include <intrin.h>
@@ -74,7 +74,7 @@
 // |*out_edx|.
 static void OPENSSL_cpuid(uint32_t *out_eax, uint32_t *out_ebx,
                           uint32_t *out_ecx, uint32_t *out_edx, uint32_t leaf) {
-#if defined(_MSC_VER)
+#if defined(_MSC_VER) && !defined(__clang__)
   int tmp[4];
   __cpuid(tmp, (int)leaf);
   *out_eax = (uint32_t)tmp[0];
@@ -116,7 +116,7 @@ static uint64_t OPENSSL_xgetbv(uint32_t xcr) {
 #endif
 }
 
-void GFp_cpuid_setup(void) {
+void OPENSSL_cpuid_setup(void) {
   // Determine the vendor and maximum input value.
   uint32_t eax, ebx, ecx, edx;
   OPENSSL_cpuid(&eax, &ebx, &ecx, &edx, 0);
@@ -194,10 +194,10 @@ void GFp_cpuid_setup(void) {
     extended_features[0] &= ~(1u << 19);
   }
 
-  GFp_ia32cap_P[0] = edx;
-  GFp_ia32cap_P[1] = ecx;
-  GFp_ia32cap_P[2] = extended_features[0];
-  GFp_ia32cap_P[3] = extended_features[1];
+  OPENSSL_ia32cap_P[0] = edx;
+  OPENSSL_ia32cap_P[1] = ecx;
+  OPENSSL_ia32cap_P[2] = extended_features[0];
+  OPENSSL_ia32cap_P[3] = extended_features[1];
 }
 
 #endif  // !OPENSSL_NO_ASM && (OPENSSL_X86 || OPENSSL_X86_64)

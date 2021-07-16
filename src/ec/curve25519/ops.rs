@@ -15,6 +15,7 @@
 //! Elliptic curve operations on the birationally equivalent curves Curve25519
 //! and Edwards25519.
 
+pub use super::scalar::{MaskedScalar, Scalar, SCALAR_LEN};
 use crate::{
     bssl, error,
     limb::{Limb, LIMB_BITS},
@@ -48,7 +49,7 @@ impl<E: Encoding> Elem<E> {
 impl Elem<T> {
     fn negate(&mut self) {
         unsafe {
-            GFp_x25519_fe_neg(self);
+            x25519_fe_neg(self);
         }
     }
 }
@@ -61,12 +62,6 @@ impl Elem<T> {
 // [RFC 8032] https://tools.ietf.org/html/rfc8032#section-5.1.2
 pub type EncodedPoint = [u8; ELEM_LEN];
 pub const ELEM_LEN: usize = 32;
-
-pub type Scalar = [u8; SCALAR_LEN];
-pub const SCALAR_LEN: usize = 32;
-
-pub type UnreducedScalar = [u8; UNREDUCED_SCALAR_LEN];
-const UNREDUCED_SCALAR_LEN: usize = SCALAR_LEN * 2;
 
 // Keep this in sync with `ge_p3` in curve25519/internal.h.
 #[repr(C)]
@@ -90,8 +85,7 @@ impl ExtPoint {
     pub fn from_encoded_point_vartime(encoded: &EncodedPoint) -> Result<Self, error::Unspecified> {
         let mut point = Self::new_at_infinity();
 
-        Result::from(unsafe { GFp_x25519_ge_frombytes_vartime(&mut point, encoded) })
-            .map(|()| point)
+        Result::from(unsafe { x25519_ge_frombytes_vartime(&mut point, encoded) }).map(|()| point)
     }
 
     pub fn into_encoded_point(self) -> EncodedPoint {
@@ -131,16 +125,16 @@ fn encode_point(x: Elem<T>, y: Elem<T>, z: Elem<T>) -> EncodedPoint {
 
     let sign_bit: u8 = unsafe {
         let mut recip = Elem::zero();
-        GFp_x25519_fe_invert(&mut recip, &z);
+        x25519_fe_invert(&mut recip, &z);
 
         let mut x_over_z = Elem::zero();
-        GFp_x25519_fe_mul_ttt(&mut x_over_z, &x, &recip);
+        x25519_fe_mul_ttt(&mut x_over_z, &x, &recip);
 
         let mut y_over_z = Elem::zero();
-        GFp_x25519_fe_mul_ttt(&mut y_over_z, &y, &recip);
-        GFp_x25519_fe_tobytes(&mut bytes, &y_over_z);
+        x25519_fe_mul_ttt(&mut y_over_z, &y, &recip);
+        x25519_fe_tobytes(&mut bytes, &y_over_z);
 
-        GFp_x25519_fe_isnegative(&x_over_z)
+        x25519_fe_isnegative(&x_over_z)
     };
 
     // The preceding computations must execute in constant time, but this
@@ -150,11 +144,11 @@ fn encode_point(x: Elem<T>, y: Elem<T>, z: Elem<T>) -> EncodedPoint {
     bytes
 }
 
-extern "C" {
-    fn GFp_x25519_fe_invert(out: &mut Elem<T>, z: &Elem<T>);
-    fn GFp_x25519_fe_isnegative(elem: &Elem<T>) -> u8;
-    fn GFp_x25519_fe_mul_ttt(h: &mut Elem<T>, f: &Elem<T>, g: &Elem<T>);
-    fn GFp_x25519_fe_neg(f: &mut Elem<T>);
-    fn GFp_x25519_fe_tobytes(bytes: &mut EncodedPoint, elem: &Elem<T>);
-    fn GFp_x25519_ge_frombytes_vartime(h: &mut ExtPoint, s: &EncodedPoint) -> bssl::Result;
+prefixed_extern! {
+    fn x25519_fe_invert(out: &mut Elem<T>, z: &Elem<T>);
+    fn x25519_fe_isnegative(elem: &Elem<T>) -> u8;
+    fn x25519_fe_mul_ttt(h: &mut Elem<T>, f: &Elem<T>, g: &Elem<T>);
+    fn x25519_fe_neg(f: &mut Elem<T>);
+    fn x25519_fe_tobytes(bytes: &mut EncodedPoint, elem: &Elem<T>);
+    fn x25519_ge_frombytes_vartime(h: &mut ExtPoint, s: &EncodedPoint) -> bssl::Result;
 }

@@ -12,19 +12,20 @@
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 // CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-use super::{
-    bigint::{self, Prime},
-    verification, RsaEncoding, N,
-};
+use super::{padding::RsaEncoding, public, N};
+
 /// RSA PKCS#1 1.5 signatures.
 use crate::{
-    arithmetic::montgomery::R,
+    arithmetic::{
+        bigint::{self, Prime},
+        montgomery::R,
+    },
     bits, digest,
     error::{self, KeyRejected},
     io::{self, der, der_writer},
     pkcs8, rand, signature,
 };
-use untrusted;
+use alloc::boxed::Box;
 
 /// An RSA key pair, used for signing.
 pub struct RsaKeyPair {
@@ -33,7 +34,7 @@ pub struct RsaKeyPair {
     qInv: bigint::Elem<P, R>,
     qq: bigint::Modulus<QQ>,
     q_mod_n: bigint::Elem<N, R>,
-    public: verification::Key,
+    public: public::Key,
     public_key: RsaSubjectPublicKey,
 }
 
@@ -230,7 +231,7 @@ impl RsaKeyPair {
         // Also, this limit might help with memory management decisions later.
 
         // Step 1.c. We validate e >= 65537.
-        let public_key = verification::Key::from_modulus_and_exponent(
+        let public_key = public::Key::from_modulus_and_exponent(
             n.big_endian_without_leading_zero_as_input(),
             e.big_endian_without_leading_zero_as_input(),
             bits::BitLength::from_usize_bits(2048),
@@ -379,8 +380,7 @@ impl RsaKeyPair {
     pub fn public_modulus_len(&self) -> usize {
         self.public_key
             .modulus()
-            .big_endian_without_leading_zero_as_input()
-            .as_slice_less_safe()
+            .big_endian_without_leading_zero()
             .len()
     }
 }
@@ -411,7 +411,7 @@ impl RsaSubjectPublicKey {
             der_writer::write_positive_integer(output, &n);
             der_writer::write_positive_integer(output, &e);
         });
-        RsaSubjectPublicKey(bytes)
+        Self(bytes)
     }
 
     /// The public modulus (n).
@@ -458,7 +458,7 @@ impl<M: Prime + Clone> PrivatePrime<M> {
         // and `e`. TODO: Either prove that what we do is sufficient, or make
         // it so.
 
-        Ok(PrivatePrime {
+        Ok(Self {
             modulus: p,
             exponent: dP,
         })
@@ -473,7 +473,7 @@ where
     M: bigint::NotMuchSmallerModulus<MM>,
     M: Prime,
 {
-    let c_mod_m = bigint::elem_reduced(c, &p.modulus)?;
+    let c_mod_m = bigint::elem_reduced(c, &p.modulus);
     // We could precompute `oneRRR = elem_squared(&p.oneRR`) as mentioned
     // in the Smooth CRT-RSA paper.
     let c_mod_m = bigint::elem_mul(p.modulus.oneRR().as_ref(), c_mod_m, &p.modulus);
@@ -533,8 +533,8 @@ impl RsaKeyPair {
     /// platforms, it is done less perfectly.
     pub fn sign(
         &self,
-        padding_alg: &'static RsaEncoding,
-        rng: &rand::SecureRandom,
+        padding_alg: &'static dyn RsaEncoding,
+        rng: &dyn rand::SecureRandom,
         msg: &[u8],
         signature: &mut [u8],
     ) -> Result<(), error::Unspecified> {
@@ -609,6 +609,7 @@ mod tests {
     // We intentionally avoid `use super::*` so that we are sure to use only
     // the public API; this ensures that enough of the API is public.
     use crate::{rand, signature};
+    use alloc::vec;
 
     // `KeyPair::sign` requires that the output buffer is the same length as
     // the public key modulus. Test what happens when it isn't the same length.
@@ -619,8 +620,7 @@ mod tests {
         const MESSAGE: &[u8] = b"hello, world";
         let rng = rand::SystemRandom::new();
 
-        const PRIVATE_KEY_DER: &'static [u8] =
-            include_bytes!("signature_rsa_example_private_key.der");
+        const PRIVATE_KEY_DER: &[u8] = include_bytes!("signature_rsa_example_private_key.der");
         let key_pair = signature::RsaKeyPair::from_der(PRIVATE_KEY_DER).unwrap();
 
         // The output buffer is one byte too short.

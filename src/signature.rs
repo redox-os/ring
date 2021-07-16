@@ -111,7 +111,7 @@
 //! [NIST Special Publication 800-56A, revision 2]:
 //!     http://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-56Ar2.pdf
 //! [Suite B implementer's guide to FIPS 186-3]:
-//!     https://github.com/briansmith/ring/blob/master/doc/ecdsa.pdf
+//!     https://github.com/briansmith/ring/blob/main/doc/ecdsa.pdf
 //! [RFC 3279 Section 2.2.3]:
 //!     https://tools.ietf.org/html/rfc3279#section-2.2.3
 //! [RFC 3447 Section 8.2]:
@@ -132,7 +132,7 @@
 //!     signature::{self, KeyPair},
 //! };
 //!
-//! # fn sign_and_verify_ed25519() -> Result<(), ring::error::Unspecified> {
+//! # fn main() -> Result<(), ring::error::Unspecified> {
 //! // Generate a key pair in PKCS#8 (v2) format.
 //! let rng = rand::SystemRandom::new();
 //! let pkcs8_bytes = signature::Ed25519KeyPair::generate_pkcs8(&rng)?;
@@ -160,8 +160,6 @@
 //!
 //! # Ok(())
 //! # }
-//!
-//! # fn main() { sign_and_verify_ed25519().unwrap() }
 //! ```
 //!
 //! ## Signing and verifying with RSA (PKCS#1 1.5 padding)
@@ -195,7 +193,7 @@
 //! ```
 //! use ring::{rand, signature};
 //!
-//! # #[cfg(feature = "use_heap")]
+//! # #[cfg(feature = "std")]
 //! fn sign_and_verify_rsa(private_key_path: &std::path::Path,
 //!                        public_key_path: &std::path::Path)
 //!                        -> Result<(), MyError> {
@@ -223,14 +221,14 @@
 //!
 //! #[derive(Debug)]
 //! enum MyError {
-//! #  #[cfg(feature = "use_heap")]
+//! #  #[cfg(feature = "std")]
 //!    IO(std::io::Error),
 //!    BadPrivateKey,
 //!    OOM,
 //!    BadSignature,
 //! }
 //!
-//! # #[cfg(feature = "use_heap")]
+//! # #[cfg(feature = "std")]
 //! fn read_file(path: &std::path::Path) -> Result<Vec<u8>, MyError> {
 //!     use std::io::Read;
 //!
@@ -240,7 +238,7 @@
 //!     Ok(contents)
 //! }
 //! #
-//! # #[cfg(not(feature = "use_heap"))]
+//! # #[cfg(not(feature = "std"))]
 //! # fn sign_and_verify_rsa(_private_key_path: &std::path::Path,
 //! #                        _public_key_path: &std::path::Path)
 //! #                        -> Result<(), ()> {
@@ -257,8 +255,6 @@
 //! ```
 
 use crate::{cpu, ec, error, sealed};
-use core;
-use untrusted;
 
 pub use crate::ec::{
     curve25519::ed25519::{
@@ -280,31 +276,23 @@ pub use crate::ec::{
     },
 };
 
-#[cfg(feature = "use_heap")]
+#[cfg(feature = "alloc")]
 pub use crate::rsa::{
+    padding::{
+        RsaEncoding, RSA_PKCS1_SHA256, RSA_PKCS1_SHA384, RSA_PKCS1_SHA512, RSA_PSS_SHA256,
+        RSA_PSS_SHA384, RSA_PSS_SHA512,
+    },
     signing::RsaKeyPair,
     signing::RsaSubjectPublicKey,
-
     verification::{
-        RsaPublicKeyComponents, RSA_PKCS1_2048_8192_SHA1, RSA_PKCS1_2048_8192_SHA256,
+        RsaPublicKeyComponents, RSA_PKCS1_1024_8192_SHA1_FOR_LEGACY_USE_ONLY,
+        RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY,
+        RSA_PKCS1_1024_8192_SHA512_FOR_LEGACY_USE_ONLY,
+        RSA_PKCS1_2048_8192_SHA1_FOR_LEGACY_USE_ONLY, RSA_PKCS1_2048_8192_SHA256,
         RSA_PKCS1_2048_8192_SHA384, RSA_PKCS1_2048_8192_SHA512, RSA_PKCS1_3072_8192_SHA384,
         RSA_PSS_2048_8192_SHA256, RSA_PSS_2048_8192_SHA384, RSA_PSS_2048_8192_SHA512,
     },
-
-    RsaEncoding,
     RsaParameters,
-
-    // `RSA_PKCS1_SHA1` is intentionally not exposed. At a minimum, we'd need
-    // to create test vectors for signing with it, which we don't currently
-    // have. But, it's a bad idea to use SHA-1 anyway, so perhaps we just won't
-    // ever expose it.
-    RSA_PKCS1_SHA256,
-    RSA_PKCS1_SHA384,
-    RSA_PKCS1_SHA512,
-
-    RSA_PSS_SHA256,
-    RSA_PSS_SHA384,
-    RSA_PSS_SHA512,
 };
 
 /// A public key signature returned from a signing operation.
@@ -365,7 +353,7 @@ pub trait VerificationAlgorithm: core::fmt::Debug + Sync + sealed::Sealed {
 
 /// An unparsed, possibly malformed, public key for signature verification.
 pub struct UnparsedPublicKey<B: AsRef<[u8]>> {
-    algorithm: &'static VerificationAlgorithm,
+    algorithm: &'static dyn VerificationAlgorithm,
     bytes: B,
 }
 
@@ -388,7 +376,7 @@ impl<B: AsRef<[u8]>> UnparsedPublicKey<B> {
     ///
     /// No validation of `bytes` is done until `verify()` is called.
     #[inline]
-    pub fn new(algorithm: &'static VerificationAlgorithm, bytes: B) -> Self {
+    pub fn new(algorithm: &'static dyn VerificationAlgorithm, bytes: B) -> Self {
         Self { algorithm, bytes }
     }
 
@@ -404,18 +392,4 @@ impl<B: AsRef<[u8]>> UnparsedPublicKey<B> {
             untrusted::Input::from(signature),
         )
     }
-}
-
-/// Deprecated. Use [UnparsedPublicKey::verify()].
-///
-/// [UnparsedPublicKey::verify()]: UnparsedPublicKey::verify
-#[deprecated(note = "Use UnparsedPublicKey::verify")]
-pub fn verify(
-    algorithm: &'static VerificationAlgorithm,
-    public_key: untrusted::Input,
-    msg: untrusted::Input,
-    signature: untrusted::Input,
-) -> Result<(), error::Unspecified> {
-    UnparsedPublicKey::new(algorithm, public_key.as_slice_less_safe())
-        .verify(msg.as_slice_less_safe(), signature.as_slice_less_safe())
 }

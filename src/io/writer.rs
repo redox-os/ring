@@ -12,6 +12,8 @@
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 // CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
+use alloc::{boxed::Box, vec::Vec};
+
 pub trait Accumulator {
     fn write_byte(&mut self, value: u8);
     fn write_bytes(&mut self, value: &[u8]);
@@ -21,9 +23,9 @@ pub(super) struct LengthMeasurement {
     len: usize,
 }
 
-impl Into<usize> for LengthMeasurement {
-    fn into(self) -> usize {
-        self.len
+impl From<LengthMeasurement> for usize {
+    fn from(len: LengthMeasurement) -> usize {
+        len.len
     }
 }
 
@@ -56,10 +58,10 @@ impl Writer {
     }
 }
 
-impl Into<Box<[u8]>> for Writer {
-    fn into(self) -> Box<[u8]> {
-        assert_eq!(self.requested_capacity, self.bytes.len());
-        self.bytes.into_boxed_slice()
+impl From<Writer> for Box<[u8]> {
+    fn from(writer: Writer) -> Self {
+        assert_eq!(writer.requested_capacity, writer.bytes.len());
+        writer.bytes.into_boxed_slice()
     }
 }
 
@@ -72,6 +74,6 @@ impl Accumulator for Writer {
     }
 }
 
-pub fn write_copy(accumulator: &mut Accumulator, to_copy: untrusted::Input) {
+pub fn write_copy(accumulator: &mut dyn Accumulator, to_copy: untrusted::Input) {
     accumulator.write_bytes(to_copy.as_slice_less_safe())
 }

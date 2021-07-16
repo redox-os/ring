@@ -60,9 +60,11 @@ if ($flavour && $flavour ne "void") {
     ( $xlate="${dir}../../../perlasm/arm-xlate.pl" and -f $xlate) or
     die "can't locate arm-xlate.pl";
 
-    open STDOUT,"| \"$^X\" $xlate $flavour $output";
+    open OUT,"| \"$^X\" $xlate $flavour $output";
+    *STDOUT=*OUT;
 } else {
-    open STDOUT,">$output";
+    open OUT,">$output";
+    *STDOUT=*OUT;
 }
 
 my ($inp,$out,$len,$key)=("r0","r1","r2","r3");
@@ -705,7 +707,7 @@ ___
 
 $code.=<<___;
 #ifndef __KERNEL__
-# include <GFp/arm_arch.h>
+# include <ring-core/arm_arch.h>
 
 # define VFP_ABI_PUSH	vstmdb	sp!,{d8-d15}
 # define VFP_ABI_POP	vldmia	sp!,{d8-d15}
@@ -935,14 +937,12 @@ my $const = "r6";	# shared with _bsaes_encrypt8_alt
 my $keysched = "sp";
 
 $code.=<<___;
-.extern	GFp_aes_nohw_encrypt
-.global	GFp_bsaes_ctr32_encrypt_blocks
-.type	GFp_bsaes_ctr32_encrypt_blocks,%function
+.global	bsaes_ctr32_encrypt_blocks
+.type	bsaes_ctr32_encrypt_blocks,%function
 .align	5
-GFp_bsaes_ctr32_encrypt_blocks:
-	cmp	$len, #8			@ use plain AES for
-	blo	.Lctr_enc_short			@ small sizes
-
+bsaes_ctr32_encrypt_blocks:
+	@ In OpenSSL, short inputs fall back to aes_nohw_* here. We patch this
+	@ out to retain a constant-time implementation.
 	mov	ip, sp
 	stmdb	sp!, {r4-r10, lr}
 	VFP_ABI_PUSH
@@ -1118,51 +1118,9 @@ GFp_bsaes_ctr32_encrypt_blocks:
 	VFP_ABI_POP
 	ldmia	sp!, {r4-r10, pc}	@ return
 
-.align	4
-.Lctr_enc_short:
-	ldr	ip, [sp]		@ ctr pointer is passed on stack
-	stmdb	sp!, {r4-r8, lr}
-
-	mov	r4, $inp		@ copy arguments
-	mov	r5, $out
-	mov	r6, $len
-	mov	r7, $key
-	ldr	r8, [ip, #12]		@ load counter LSW
-	vld1.8	{@XMM[1]}, [ip]		@ load whole counter value
-#ifdef __ARMEL__
-	rev	r8, r8
-#endif
-	sub	sp, sp, #0x10
-	vst1.8	{@XMM[1]}, [sp]		@ copy counter value
-	sub	sp, sp, #0x10
-
-.Lctr_enc_short_loop:
-	add	r0, sp, #0x10		@ input counter value
-	mov	r1, sp			@ output on the stack
-	mov	r2, r7			@ key
-
-	bl	GFp_aes_nohw_encrypt
-
-	vld1.8	{@XMM[0]}, [r4]!	@ load input
-	vld1.8	{@XMM[1]}, [sp]		@ load encrypted counter
-	add	r8, r8, #1
-#ifdef __ARMEL__
-	rev	r0, r8
-	str	r0, [sp, #0x1c]		@ next counter value
-#else
-	str	r8, [sp, #0x1c]		@ next counter value
-#endif
-	veor	@XMM[0],@XMM[0],@XMM[1]
-	vst1.8	{@XMM[0]}, [r5]!	@ store output
-	subs	r6, r6, #1
-	bne	.Lctr_enc_short_loop
-
-	vmov.i32	q0, #0
-	vmov.i32	q1, #0
-	vstmia		sp!, {q0-q1}
-
-	ldmia	sp!, {r4-r8, pc}
-.size	GFp_bsaes_ctr32_encrypt_blocks,.-GFp_bsaes_ctr32_encrypt_blocks
+	@ OpenSSL contains aes_nohw_* fallback code here. We patch this
+	@ out to retain a constant-time implementation.
+.size	bsaes_ctr32_encrypt_blocks,.-bsaes_ctr32_encrypt_blocks
 ___
 }
 $code.=<<___;
@@ -1181,4 +1139,4 @@ close SELF;
 
 print $code;
 
-close STDOUT;
+close STDOUT or die "error closing STDOUT";

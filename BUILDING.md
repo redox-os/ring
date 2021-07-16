@@ -26,14 +26,27 @@ Builds directly from Git
 ------------------------
 
 If you want to hack on *ring* then you need to build it directly from its Git
-repository. In this case, you must also have Perl installed, because the
-assembly language modules inherited from BoringSSL (inherited from OpenSSL)
-use Perl as a macro assembly language.
+repository. There are some additional requirements for doing this that do not
+apply when building from crates.io:
 
-When building from Git for Windows, directories containing yasm.exe and
-perl.exe must be in `%PATH%`, where yasm.exe is
-[Yasm](http://yasm.tortall.net/Download.html) 1.3 or later and where perl.exe
-is recommended to be [Strawberry Perl](http://strawberryperl.com). 
+* For any target for which *ring* has assembly language implementations of
+  primitives (32- and 64- bit Intel, and 32- and 64-bit ARM), Perl must be
+  installed and in `$PATH`.
+
+* For Windows targets, `target/tools/windows/nasm/nasm[.exe]` is used as the
+  assembler. The version to use and how to download it is documented in
+  [.github/workflows/ci.yml](.github/workflows/ci.yml).
+
+Cross Compiling
+---------------
+
+When you build *ring* for a target that is different than the one you are using
+for the build process you need to install the rust tool chain and a C/C++
+compiler that can produce binaries for the intended target.
+
+Besides the required dependencies you need to set the environment variables
+`TARGET_CC` and `TARGET_AR` to the full path of the cross-compiler and the
+cross-archiver respectively.
 
 
 Supported Toolchains
@@ -67,30 +80,10 @@ e.g. export `CFLAGS=-D__ANDROID_API__=21`.
 
 Additional Features that are Useful for Development
 ---------------------------------------------------
-
-The `use_heap` feature enables functionality that uses the heap. This is on by
-default. Disabling it is useful for code running in kernel space and some
-embedded applications. For now some RSA, ECDH, and ECDSA signing functionality
-still uses the heap. This feature will go away once RSA signing is the only
-feature that uses the heap.
-
-The `internal_benches` feature enable benchmarks of internal functions. These
-benchmarks are only useful for people hacking on the implementation of *ring*.
-(The benchmarks for the *ring* API are in the
-[crypto-bench](https://github.com/briansmith/crypto-bench) project.)
-
 The `slow_tests` feature runs additional tests that are too slow to run during
 a normal edit-compile-test cycle.
 
-The `test_logging` feature prints out additional logging information during
-tests, in particular the contents of the test input files, as tests execute.
-When a test fails, the most recently-logged stuff indicates which test vectors
-failed. This isn't enabled by default because it uses too much memory on small
-targets, due to the way that Rust buffers the output until (unless) the test
-fails. For small (embedded) targets, use
-`cargo test --release --no-run --features=test_logging` to build the tests, and
-then run the tests on the target with `<executable-name> --nocapture' to see
-the log.
+The `test_logging` feature prints out the input test vectors when a test fails.
 
 
 [#321]: https://github.com/briansmith/ring/pull/321

@@ -16,7 +16,6 @@
 
 use self::ops::*;
 use crate::{arithmetic::montgomery::*, cpu, ec, error, io::der, limb::LimbMask, pkcs8};
-use untrusted;
 
 // NIST SP 800-56A Step 3: "If q is an odd prime p, verify that
 // yQ**2 = xQ**3 + axQ + b in GF(p), where the arithmetic is performed modulo
@@ -192,7 +191,7 @@ fn key_pair_from_pkcs8_<'a>(
         let actual_alg_id =
             der::expect_tag_and_get_value(input, der::Tag::ContextSpecificConstructed0)
                 .map_err(|error::Unspecified| error::KeyRejected::invalid_encoding())?;
-        if actual_alg_id != template.curve_oid() {
+        if actual_alg_id.as_slice_less_safe() != template.curve_oid().as_slice_less_safe() {
             return Err(error::KeyRejected::wrong_algorithm());
         }
     }
@@ -221,7 +220,7 @@ pub(crate) fn key_pair_from_bytes(
 
     let r = ec::KeyPair::derive(seed)
         .map_err(|error::Unspecified| error::KeyRejected::unexpected_error())?;
-    if public_key_bytes != *r.public_key().as_ref() {
+    if public_key_bytes.as_slice_less_safe() != r.public_key().as_ref() {
         return Err(error::KeyRejected::inconsistent_components());
     }
 
@@ -232,7 +231,6 @@ pub mod curve;
 pub mod ecdh;
 pub mod ecdsa;
 
-#[macro_use]
 mod ops;
 
 mod private_key;

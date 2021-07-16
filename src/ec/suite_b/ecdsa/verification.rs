@@ -23,7 +23,6 @@ use crate::{
     io::der,
     limb, sealed, signature,
 };
-use untrusted;
 
 /// An ECDSA verification algorithm.
 pub struct EcdsaVerificationAlgorithm {
@@ -151,15 +150,18 @@ impl EcdsaVerificationAlgorithm {
             let cops = ops.public_key_ops.common;
             let r_jacobian = cops.elem_product(z2, r);
             let x = cops.elem_unencoded(x);
-            ops.elem_equals(&r_jacobian, &x)
+            ops.elem_equals_vartime(&r_jacobian, &x)
         }
-        let r = self.ops.scalar_as_elem(&r);
+        let mut r = self.ops.scalar_as_elem(&r);
         if sig_r_equals_x(self.ops, &r, &x, &z2) {
             return Ok(());
         }
         if self.ops.elem_less_than(&r, &self.ops.q_minus_n) {
-            let r_plus_n = self.ops.elem_sum(&r, &public_key_ops.common.n);
-            if sig_r_equals_x(self.ops, &r_plus_n, &x, &z2) {
+            self.ops
+                .private_key_ops
+                .common
+                .elem_add(&mut r, &public_key_ops.common.n);
+            if sig_r_equals_x(self.ops, &r, &x, &z2) {
                 return Ok(());
             }
         }
@@ -289,6 +291,7 @@ pub static ECDSA_P384_SHA384_ASN1: EcdsaVerificationAlgorithm = EcdsaVerificatio
 mod tests {
     use super::*;
     use crate::test;
+    use alloc::{vec, vec::Vec};
 
     #[test]
     fn test_digest_based_test_vectors() {
@@ -300,8 +303,7 @@ mod tests {
                 let curve_name = test_case.consume_string("Curve");
 
                 let public_key = {
-                    let mut public_key = Vec::new();
-                    public_key.push(0x04);
+                    let mut public_key = vec![0x04];
                     public_key.extend(&test_case.consume_bytes("X"));
                     public_key.extend(&test_case.consume_bytes("Y"));
                     public_key

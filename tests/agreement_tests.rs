@@ -12,26 +12,52 @@
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 // CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-#![forbid(
-    anonymous_parameters,
-    box_pointers,
-    legacy_directory_ownership,
-    missing_copy_implementations,
-    missing_debug_implementations,
-    missing_docs,
-    trivial_casts,
-    trivial_numeric_casts,
-    unsafe_code,
-    unstable_features,
-    unused_extern_crates,
-    unused_import_braces,
-    unused_qualifications,
-    unused_results,
-    variant_size_differences,
-    warnings
-)]
+extern crate alloc;
 
 use ring::{agreement, error, rand, test, test_file};
+
+#[test]
+fn agreement_traits() {
+    use alloc::vec::Vec;
+
+    let rng = rand::SystemRandom::new();
+    let private_key =
+        agreement::EphemeralPrivateKey::generate(&agreement::ECDH_P256, &rng).unwrap();
+
+    test::compile_time_assert_send::<agreement::EphemeralPrivateKey>();
+    test::compile_time_assert_sync::<agreement::EphemeralPrivateKey>();
+
+    assert_eq!(
+        format!("{:?}", &private_key),
+        "EphemeralPrivateKey { algorithm: Algorithm { curve: P256 } }"
+    );
+
+    let public_key = private_key.compute_public_key().unwrap();
+
+    test::compile_time_assert_clone::<agreement::PublicKey>();
+    test::compile_time_assert_send::<agreement::PublicKey>();
+    test::compile_time_assert_sync::<agreement::PublicKey>();
+
+    // Verify `PublicKey` implements `Debug`.
+    //
+    // TODO: Test the actual output.
+    let _: &dyn core::fmt::Debug = &public_key;
+
+    test::compile_time_assert_clone::<agreement::UnparsedPublicKey<&[u8]>>();
+    test::compile_time_assert_copy::<agreement::UnparsedPublicKey<&[u8]>>();
+    test::compile_time_assert_sync::<agreement::UnparsedPublicKey<&[u8]>>();
+
+    test::compile_time_assert_clone::<agreement::UnparsedPublicKey<Vec<u8>>>();
+    test::compile_time_assert_sync::<agreement::UnparsedPublicKey<Vec<u8>>>();
+
+    let unparsed_public_key =
+        agreement::UnparsedPublicKey::new(&agreement::X25519, &[0x01, 0x02, 0x03]);
+
+    assert_eq!(
+        format!("{:?}", unparsed_public_key),
+        r#"UnparsedPublicKey { algorithm: Algorithm { curve: Curve25519 }, bytes: "010203" }"#
+    );
+}
 
 #[test]
 fn agreement_agree_ephemeral() {
@@ -54,16 +80,17 @@ fn agreement_agree_ephemeral() {
                 let my_public = test_case.consume_bytes("MyQ");
                 let output = test_case.consume_bytes("Output");
 
+                assert_eq!(my_private.algorithm(), alg);
+
                 let computed_public = my_private.compute_public_key().unwrap();
                 assert_eq!(computed_public.as_ref(), &my_public[..]);
 
-                assert!(
-                    agreement::agree_ephemeral(my_private, &peer_public, (), |key_material| {
-                        assert_eq!(key_material, &output[..]);
-                        Ok(())
-                    })
-                    .is_ok()
-                );
+                assert_eq!(my_private.algorithm(), alg);
+
+                let result = agreement::agree_ephemeral(my_private, &peer_public, |key_material| {
+                    assert_eq!(key_material, &output[..]);
+                });
+                assert_eq!(result, Ok(()));
             }
 
             Some(_) => {
@@ -79,14 +106,13 @@ fn agreement_agree_ephemeral() {
                 assert!(agreement::agree_ephemeral(
                     dummy_private_key,
                     &peer_public,
-                    (),
                     kdf_not_called
                 )
                 .is_err());
             }
         }
 
-        return Ok(());
+        Ok(())
     });
 }
 
@@ -97,7 +123,7 @@ fn test_agreement_ecdh_x25519_rfc_iterated() {
 
     fn expect_iterated_x25519(
         expected_result: &str,
-        range: std::ops::Range<usize>,
+        range: core::ops::Range<usize>,
         k: &mut Vec<u8>,
         u: &mut Vec<u8>,
     ) {
@@ -150,12 +176,9 @@ fn x25519_(private_key: &[u8], public_key: &[u8]) -> Result<Vec<u8>, error::Unsp
     let rng = test::rand::FixedSliceRandom { bytes: private_key };
     let private_key = agreement::EphemeralPrivateKey::generate(&agreement::X25519, &rng)?;
     let public_key = agreement::UnparsedPublicKey::new(&agreement::X25519, public_key);
-    agreement::agree_ephemeral(
-        private_key,
-        &public_key,
-        error::Unspecified,
-        |agreed_value| Ok(Vec::from(agreed_value)),
-    )
+    agreement::agree_ephemeral(private_key, &public_key, |agreed_value| {
+        Vec::from(agreed_value)
+    })
 }
 
 fn h(s: &str) -> Vec<u8> {

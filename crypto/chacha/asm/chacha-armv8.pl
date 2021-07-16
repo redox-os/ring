@@ -120,9 +120,10 @@ my ($a3,$b3,$c3,$d3)=map(($_&~3)+(($_+1)&3),($a2,$b2,$c2,$d2));
 }
 
 $code.=<<___;
-#include <GFp/arm_arch.h>
+#include <ring-core/arm_arch.h>
 
-.extern	GFp_armcap_P
+.extern	OPENSSL_armcap_P
+.hidden	OPENSSL_armcap_P
 
 .section .rodata
 
@@ -131,30 +132,29 @@ $code.=<<___;
 .quad	0x3320646e61707865,0x6b20657479622d32		// endian-neutral
 .Lone:
 .long	1,0,0,0
-.LGFp_armcap_P:
-#ifdef	__ILP32__
-.long	GFp_armcap_P-.
-#else
-.quad	GFp_armcap_P-.
-#endif
 .asciz	"ChaCha20 for ARMv8, CRYPTOGAMS by <appro\@openssl.org>"
 
 .text
 
-.globl	GFp_ChaCha20_ctr32
-.type	GFp_ChaCha20_ctr32,%function
+.globl	ChaCha20_ctr32
+.type	ChaCha20_ctr32,%function
 .align	5
-GFp_ChaCha20_ctr32:
+ChaCha20_ctr32:
+	AARCH64_VALID_CALL_TARGET
 	cbz	$len,.Labort
-	adrp	@x[0],:pg_hi21:GFp_armcap_P
+#if __has_feature(hwaddress_sanitizer) && __clang_major__ >= 10
+	adrp	@x[0],:pg_hi21_nc:OPENSSL_armcap_P
+#else
+	adrp	@x[0],:pg_hi21:OPENSSL_armcap_P
+#endif
 	cmp	$len,#192
 	b.lo	.Lshort
-	add	@x[0],@x[0],:lo12:GFp_armcap_P
-	ldr	w17,[@x[0]]
+	ldr	w17,[@x[0],:lo12:OPENSSL_armcap_P]
 	tst	w17,#ARMV7_NEON
 	b.ne	ChaCha20_neon
 
 .Lshort:
+	AARCH64_SIGN_LINK_REGISTER
 	stp	x29,x30,[sp,#-96]!
 	add	x29,sp,#0
 
@@ -275,6 +275,7 @@ $code.=<<___;
 	ldp	x25,x26,[x29,#64]
 	ldp	x27,x28,[x29,#80]
 	ldp	x29,x30,[sp],#96
+	AARCH64_VALIDATE_LINK_REGISTER
 .Labort:
 	ret
 
@@ -331,8 +332,9 @@ $code.=<<___;
 	ldp	x25,x26,[x29,#64]
 	ldp	x27,x28,[x29,#80]
 	ldp	x29,x30,[sp],#96
+	AARCH64_VALIDATE_LINK_REGISTER
 	ret
-.size	GFp_ChaCha20_ctr32,.-GFp_ChaCha20_ctr32
+.size	ChaCha20_ctr32,.-ChaCha20_ctr32
 ___
 
 {{{
@@ -376,6 +378,7 @@ $code.=<<___;
 .type	ChaCha20_neon,%function
 .align	5
 ChaCha20_neon:
+	AARCH64_SIGN_LINK_REGISTER
 	stp	x29,x30,[sp,#-96]!
 	add	x29,sp,#0
 
@@ -575,6 +578,7 @@ $code.=<<___;
 	ldp	x25,x26,[x29,#64]
 	ldp	x27,x28,[x29,#80]
 	ldp	x29,x30,[sp],#96
+	AARCH64_VALIDATE_LINK_REGISTER
 	ret
 
 .Ltail_neon:
@@ -684,6 +688,7 @@ $code.=<<___;
 	ldp	x25,x26,[x29,#64]
 	ldp	x27,x28,[x29,#80]
 	ldp	x29,x30,[sp],#96
+	AARCH64_VALIDATE_LINK_REGISTER
 	ret
 .size	ChaCha20_neon,.-ChaCha20_neon
 ___
@@ -696,6 +701,7 @@ $code.=<<___;
 .type	ChaCha20_512_neon,%function
 .align	5
 ChaCha20_512_neon:
+	AARCH64_SIGN_LINK_REGISTER
 	stp	x29,x30,[sp,#-96]!
 	add	x29,sp,#0
 
@@ -1115,6 +1121,7 @@ $code.=<<___;
 	ldp	x25,x26,[x29,#64]
 	ldp	x27,x28,[x29,#80]
 	ldp	x29,x30,[sp],#96
+	AARCH64_VALIDATE_LINK_REGISTER
 	ret
 .size	ChaCha20_512_neon,.-ChaCha20_512_neon
 ___
@@ -1134,4 +1141,4 @@ foreach (split("\n",$code)) {
 
 	print $_,"\n";
 }
-close STDOUT;	# flush
+close STDOUT or die "error closing STDOUT";	# flush

@@ -15,36 +15,18 @@
 //! Polyfills for functionality that will (hopefully) be added to Rust's
 //! standard library soon.
 
-use core;
-
-#[macro_use]
-pub mod convert;
-
 #[inline(always)]
 pub const fn u64_from_usize(x: usize) -> u64 {
     x as u64
 }
 
-#[inline(always)]
 pub fn usize_from_u32(x: u32) -> usize {
     x as usize
 }
 
-/// `core::num::Wrapping` doesn't support `rotate_left`.
-/// There is no usable trait for `rotate_left`, so this polyfill just
-/// hard-codes u32. https://github.com/rust-lang/rust/issues/32463
-#[inline(always)]
-pub fn wrapping_rotate_left_u32(x: core::num::Wrapping<u32>, n: u32) -> core::num::Wrapping<u32> {
-    core::num::Wrapping(x.0.rotate_left(n))
-}
+#[macro_use]
+mod chunks_fixed;
 
-pub mod slice {
-    // https://github.com/rust-lang/rust/issues/27750
-    // https://internals.rust-lang.org/t/stabilizing-basic-functions-on-arrays-and-slices/2868
-    #[inline(always)]
-    pub fn fill(dest: &mut [u8], value: u8) {
-        for d in dest {
-            *d = value;
-        }
-    }
-}
+pub(crate) mod array_map;
+
+pub use chunks_fixed::*;

@@ -14,8 +14,6 @@
 
 #include "../../limbs/limbs.h"
 
-#include <string.h>
-
 #include "ecp_nistz384.h"
 #include "../bn/internal.h"
 #include "../../internal.h"
@@ -59,18 +57,21 @@ static const BN_ULONG ONE[P384_LIMBS] = {
 
 /* XXX: MSVC for x86 warns when it fails to inline these functions it should
  * probably inline. */
-#if defined(_MSC_VER)  && defined(OPENSSL_X86)
+#if defined(_MSC_VER) && !defined(__clang__) && defined(OPENSSL_X86)
 #define INLINE_IF_POSSIBLE __forceinline
 #else
 #define INLINE_IF_POSSIBLE inline
 #endif
 
-
-static INLINE_IF_POSSIBLE Limb is_equal(const Elem a, const Elem b) {
+static inline Limb is_equal(const Elem a, const Elem b) {
   return LIMBS_equal(a, b, P384_LIMBS);
 }
 
-static INLINE_IF_POSSIBLE void copy_conditional(Elem r, const Elem a,
+static inline Limb is_zero(const BN_ULONG a[P384_LIMBS]) {
+  return LIMBS_are_zero(a, P384_LIMBS);
+}
+
+static inline void copy_conditional(Elem r, const Elem a,
                                                 const Limb condition) {
   for (size_t i = 0; i < P384_LIMBS; ++i) {
     r[i] = constant_time_select_w(condition, a[i], r[i]);
@@ -78,11 +79,11 @@ static INLINE_IF_POSSIBLE void copy_conditional(Elem r, const Elem a,
 }
 
 
-static void elem_add(Elem r, const Elem a, const Elem b) {
+static inline void elem_add(Elem r, const Elem a, const Elem b) {
   LIMBS_add_mod(r, a, b, Q, P384_LIMBS);
 }
 
-static void elem_sub(Elem r, const Elem a, const Elem b) {
+static inline void elem_sub(Elem r, const Elem a, const Elem b) {
   LIMBS_sub_mod(r, a, b, Q, P384_LIMBS);
 }
 
@@ -148,11 +149,8 @@ static void elem_div_by_2(Elem r, const Elem a) {
 
   Elem adjusted;
   BN_ULONG carry2 = limbs_add(adjusted, r, Q_PLUS_1_SHR_1, P384_LIMBS);
-#if defined(NDEBUG)
+  dev_assert_secret(carry2 == 0);
   (void)carry2;
-#endif
-  assert(carry2 == 0);
-
   copy_conditional(r, adjusted, is_odd);
 }
 
@@ -161,7 +159,7 @@ static inline void elem_mul_mont(Elem r, const Elem a, const Elem b) {
     BN_MONT_CTX_N0(0x1, 0x1)
   };
   /* XXX: Not (clearly) constant-time; inefficient.*/
-  GFp_bn_mul_mont(r, a, b, Q, Q_N0, P384_LIMBS);
+  bn_mul_mont(r, a, b, Q, Q_N0, P384_LIMBS);
 }
 
 static inline void elem_mul_by_2(Elem r, const Elem a) {
@@ -180,59 +178,54 @@ static inline void elem_sqr_mont(Elem r, const Elem a) {
   elem_mul_mont(r, a, a);
 }
 
-void GFp_p384_elem_add(Elem r, const Elem a, const Elem b) {
-  elem_add(r, a, b);
-}
-
-void GFp_p384_elem_sub(Elem r, const Elem a, const Elem b) {
+void p384_elem_sub(Elem r, const Elem a, const Elem b) {
   elem_sub(r, a, b);
 }
 
-void GFp_p384_elem_div_by_2(Elem r, const Elem a) {
+void p384_elem_div_by_2(Elem r, const Elem a) {
   elem_div_by_2(r, a);
 }
 
-void GFp_p384_elem_mul_mont(Elem r, const Elem a, const Elem b) {
+void p384_elem_mul_mont(Elem r, const Elem a, const Elem b) {
   elem_mul_mont(r, a, b);
 }
 
-void GFp_p384_elem_neg(Elem r, const Elem a) {
+void p384_elem_neg(Elem r, const Elem a) {
   Limb is_zero = LIMBS_are_zero(a, P384_LIMBS);
   Carry borrow = limbs_sub(r, Q, a, P384_LIMBS);
-#if defined(NDEBUG)
+  dev_assert_secret(borrow == 0);
   (void)borrow;
-#endif
-  assert(borrow == 0);
   for (size_t i = 0; i < P384_LIMBS; ++i) {
     r[i] = constant_time_select_w(is_zero, 0, r[i]);
   }
 }
 
 
-void GFp_p384_scalar_mul_mont(ScalarMont r, const ScalarMont a,
+void p384_scalar_mul_mont(ScalarMont r, const ScalarMont a,
                               const ScalarMont b) {
   static const BN_ULONG N_N0[] = {
     BN_MONT_CTX_N0(0x6ed46089, 0xe88fdc45)
   };
   /* XXX: Inefficient. TODO: Add dedicated multiplication routine. */
-  GFp_bn_mul_mont(r, a, b, N, N_N0, P384_LIMBS);
+  bn_mul_mont(r, a, b, N, N_N0, P384_LIMBS);
 }
 
 
 /* TODO(perf): Optimize this. */
 
-static void gfp_p384_point_select_w5(P384_POINT *out,
+static void p384_point_select_w5(P384_POINT *out,
                                      const P384_POINT table[16], size_t index) {
-  Elem x; memset(x, 0, sizeof(x));
-  Elem y; memset(y, 0, sizeof(y));
-  Elem z; memset(z, 0, sizeof(z));
+  Elem x; limbs_zero(x, P384_LIMBS);
+  Elem y; limbs_zero(y, P384_LIMBS);
+  Elem z; limbs_zero(z, P384_LIMBS);
 
+  // TODO: Rewrite in terms of |limbs_select|.
   for (size_t i = 0; i < 16; ++i) {
-    Limb mask = constant_time_eq_w(index, i + 1);
+    crypto_word equal = constant_time_eq_w(index, (crypto_word)i + 1);
     for (size_t j = 0; j < P384_LIMBS; ++j) {
-      x[j] |= table[i].X[j] & mask;
-      y[j] |= table[i].Y[j] & mask;
-      z[j] |= table[i].Z[j] & mask;
+      x[j] = constant_time_select_w(equal, table[i].X[j], x[j]);
+      y[j] = constant_time_select_w(equal, table[i].Y[j], y[j]);
+      z[j] = constant_time_select_w(equal, table[i].Z[j], z[j]);
     }
   }
 

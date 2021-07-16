@@ -53,7 +53,7 @@ open OUT,"| \"$^X\" $xlate $flavour $output";
 $prefix="aes_hw";
 
 $code=<<___;
-#include <GFp/arm_arch.h>
+#include <ring-core/arm_arch.h>
 
 #if __ARM_MAX_ARCH__>=7
 .text
@@ -89,13 +89,15 @@ $code.=<<___;
 
 .text
 
-.globl	GFp_${prefix}_set_encrypt_key
-.type	GFp_${prefix}_set_encrypt_key,%function
+.globl	${prefix}_set_encrypt_key
+.type	${prefix}_set_encrypt_key,%function
 .align	5
-GFp_${prefix}_set_encrypt_key:
+${prefix}_set_encrypt_key:
 .Lenc_key:
 ___
 $code.=<<___	if ($flavour =~ /64/);
+	// Armv8.3-A PAuth: even though x30 is pushed to stack it is not popped later.
+	AARCH64_VALID_CALL_TARGET
 	stp	x29,x30,[sp,#-16]!
 	add	x29,sp,#0
 ___
@@ -233,7 +235,7 @@ $code.=<<___;
 	mov	x0,$ptr			// return value
 	`"ldr	x29,[sp],#16"		if ($flavour =~ /64/)`
 	ret
-.size	GFp_${prefix}_set_encrypt_key,.-GFp_${prefix}_set_encrypt_key
+.size	${prefix}_set_encrypt_key,.-${prefix}_set_encrypt_key
 ___
 }}}
 {{{
@@ -245,10 +247,11 @@ my $rounds="w3";
 my ($rndkey0,$rndkey1,$inout)=map("q$_",(0..3));
 
 $code.=<<___;
-.globl	GFp_${prefix}_${dir}crypt
-.type	GFp_${prefix}_${dir}crypt,%function
+.globl	${prefix}_${dir}crypt
+.type	${prefix}_${dir}crypt,%function
 .align	5
-GFp_${prefix}_${dir}crypt:
+${prefix}_${dir}crypt:
+	AARCH64_VALID_CALL_TARGET
 	ldr	$rounds,[$key,#240]
 	vld1.32	{$rndkey0},[$key],#16
 	vld1.8	{$inout},[$inp]
@@ -273,11 +276,12 @@ GFp_${prefix}_${dir}crypt:
 
 	vst1.8	{$inout},[$out]
 	ret
-.size	GFp_${prefix}_${dir}crypt,.-GFp_${prefix}_${dir}crypt
+.size	${prefix}_${dir}crypt,.-${prefix}_${dir}crypt
 ___
 }
 &gen_block("en");
-&gen_block("de");
+# Decryption removed in *ring*.
+# &gen_block("de");
 }}}
 {{{
 my ($inp,$out,$len,$key,$ivp)=map("x$_",(0..4));
@@ -293,12 +297,14 @@ my ($dat,$tmp)=($dat0,$tmp0);
 ### q8-q15	preloaded key schedule
 
 $code.=<<___;
-.globl	GFp_${prefix}_ctr32_encrypt_blocks
-.type	GFp_${prefix}_ctr32_encrypt_blocks,%function
+.globl	${prefix}_ctr32_encrypt_blocks
+.type	${prefix}_ctr32_encrypt_blocks,%function
 .align	5
-GFp_${prefix}_ctr32_encrypt_blocks:
+${prefix}_ctr32_encrypt_blocks:
 ___
 $code.=<<___	if ($flavour =~ /64/);
+	// Armv8.3-A PAuth: even though x30 is pushed to stack it is not popped later.
+	AARCH64_VALID_CALL_TARGET
 	stp		x29,x30,[sp,#-16]!
 	add		x29,sp,#0
 ___
@@ -326,20 +332,34 @@ $code.=<<___;
 	add		$key_,$key,#32
 	mov		$cnt,$rounds
 	cclr		$step,lo
+
+	// ARM Cortex-A57 and Cortex-A72 cores running in 32-bit mode are
+	// affected by silicon errata #1742098 [0] and #1655431 [1],
+	// respectively, where the second instruction of an aese/aesmc
+	// instruction pair may execute twice if an interrupt is taken right
+	// after the first instruction consumes an input register of which a
+	// single 32-bit lane has been updated the last time it was modified.
+	//
+	// This function uses a counter in one 32-bit lane. The vmov.32 lines
+	// could write to $dat1 and $dat2 directly, but that trips this bugs.
+	// We write to $ivec and copy to the final register as a workaround.
+	//
+	// [0] ARM-EPM-049219 v23 Cortex-A57 MPCore Software Developers Errata Notice
+	// [1] ARM-EPM-012079 v11.0 Cortex-A72 MPCore Software Developers Errata Notice
 #ifndef __ARMEB__
 	rev		$ctr, $ctr
 #endif
-	vorr		$dat1,$dat0,$dat0
 	add		$tctr1, $ctr, #1
-	vorr		$dat2,$dat0,$dat0
-	add		$ctr, $ctr, #2
 	vorr		$ivec,$dat0,$dat0
 	rev		$tctr1, $tctr1
-	vmov.32		${dat1}[3],$tctr1
+	vmov.32		${ivec}[3],$tctr1
+	add		$ctr, $ctr, #2
+	vorr		$dat1,$ivec,$ivec
 	b.ls		.Lctr32_tail
 	rev		$tctr2, $ctr
+	vmov.32		${ivec}[3],$tctr2
 	sub		$len,$len,#3		// bias
-	vmov.32		${dat2}[3],$tctr2
+	vorr		$dat2,$ivec,$ivec
 	b		.Loop3x_ctr32
 
 .align	4
@@ -366,11 +386,11 @@ $code.=<<___;
 	aese		$dat1,q8
 	aesmc		$tmp1,$dat1
 	 vld1.8		{$in0},[$inp],#16
-	 vorr		$dat0,$ivec,$ivec
+	 add		$tctr0,$ctr,#1
 	aese		$dat2,q8
 	aesmc		$dat2,$dat2
 	 vld1.8		{$in1},[$inp],#16
-	 vorr		$dat1,$ivec,$ivec
+	 rev		$tctr0,$tctr0
 	aese		$tmp0,q9
 	aesmc		$tmp0,$tmp0
 	aese		$tmp1,q9
@@ -379,8 +399,6 @@ $code.=<<___;
 	 mov		$key_,$key
 	aese		$dat2,q9
 	aesmc		$tmp2,$dat2
-	 vorr		$dat2,$ivec,$ivec
-	 add		$tctr0,$ctr,#1
 	aese		$tmp0,q12
 	aesmc		$tmp0,$tmp0
 	aese		$tmp1,q12
@@ -395,21 +413,26 @@ $code.=<<___;
 	aesmc		$tmp0,$tmp0
 	aese		$tmp1,q13
 	aesmc		$tmp1,$tmp1
+	 // Note the logic to update $dat0, $dat1, and $dat1 is written to work
+	 // around a bug in ARM Cortex-A57 and Cortex-A72 cores running in
+	 // 32-bit mode. See the comment above.
 	 veor		$in2,$in2,$rndlast
-	 rev		$tctr0,$tctr0
+	 vmov.32	${ivec}[3], $tctr0
 	aese		$tmp2,q13
 	aesmc		$tmp2,$tmp2
-	 vmov.32	${dat0}[3], $tctr0
+	 vorr		$dat0,$ivec,$ivec
 	 rev		$tctr1,$tctr1
 	aese		$tmp0,q14
 	aesmc		$tmp0,$tmp0
+	 vmov.32	${ivec}[3], $tctr1
+	 rev		$tctr2,$ctr
 	aese		$tmp1,q14
 	aesmc		$tmp1,$tmp1
-	 vmov.32	${dat1}[3], $tctr1
-	 rev		$tctr2,$ctr
+	 vorr		$dat1,$ivec,$ivec
+	 vmov.32	${ivec}[3], $tctr2
 	aese		$tmp2,q14
 	aesmc		$tmp2,$tmp2
-	 vmov.32	${dat2}[3], $tctr2
+	 vorr		$dat2,$ivec,$ivec
 	 subs		$len,$len,#3
 	aese		$tmp0,q15
 	aese		$tmp1,q15
@@ -491,7 +514,7 @@ $code.=<<___	if ($flavour =~ /64/);
 	ret
 ___
 $code.=<<___;
-.size	GFp_${prefix}_ctr32_encrypt_blocks,.-GFp_${prefix}_ctr32_encrypt_blocks
+.size	${prefix}_ctr32_encrypt_blocks,.-${prefix}_ctr32_encrypt_blocks
 ___
 }}}
 $code.=<<___;
@@ -605,4 +628,4 @@ if ($flavour =~ /64/) {			######## 64-bit code
     }
 }
 
-close STDOUT;
+close STDOUT or die "error closing STDOUT";

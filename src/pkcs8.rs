@@ -17,8 +17,6 @@
 //! [RFC 5958]: https://tools.ietf.org/html/rfc5958.
 
 use crate::{ec, error, io::der};
-use core;
-use untrusted;
 
 pub(crate) enum Version {
     V1Only,
@@ -121,7 +119,7 @@ fn unwrap_key__<'a>(
 
     let actual_alg_id = der::expect_tag_and_get_value(input, der::Tag::Sequence)
         .map_err(|error::Unspecified| error::KeyRejected::invalid_encoding())?;
-    if actual_alg_id != alg_id {
+    if actual_alg_id.as_slice_less_safe() != alg_id.as_slice_less_safe() {
         return Err(error::KeyRejected::wrong_algorithm());
     }
 
