@@ -478,7 +478,7 @@ fn build_library(
                 let _ = c.flag("-Wl,-dead_strip");
             },
             _ => {
-                let _ = c.flag("-Wl,--gc-sections".into());
+                let _ = c.flag("-Wl,--gc-sections");
             },
         }
         for o in objs {
