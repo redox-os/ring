@@ -149,7 +149,7 @@ impl Key {
                 target_arch = "aarch64",
                 target_arch = "arm",
                 target_arch = "x86_64",
-                target_arch = "x86"
+                all(target_arch = "x86", target_feature = "sse2")
             ))]
             Implementation::HWAES => {
                 set_encrypt_key!(aes_hw_set_encrypt_key, bytes, key_bits, &mut key)?
@@ -159,7 +159,7 @@ impl Key {
                 target_arch = "aarch64",
                 target_arch = "arm",
                 target_arch = "x86_64",
-                target_arch = "x86"
+                all(target_arch = "x86", target_feature = "sse2")
             ))]
             Implementation::VPAES_BSAES => {
                 set_encrypt_key!(vpaes_set_encrypt_key, bytes, key_bits, &mut key)?
@@ -180,7 +180,7 @@ impl Key {
                 target_arch = "aarch64",
                 target_arch = "arm",
                 target_arch = "x86_64",
-                target_arch = "x86"
+                all(target_arch = "x86", target_feature = "sse2")
             ))]
             Implementation::HWAES => encrypt_block!(aes_hw_encrypt, a, self),
 
@@ -188,7 +188,7 @@ impl Key {
                 target_arch = "aarch64",
                 target_arch = "arm",
                 target_arch = "x86_64",
-                target_arch = "x86"
+                all(target_arch = "x86", target_feature = "sse2")
             ))]
             Implementation::VPAES_BSAES => encrypt_block!(vpaes_encrypt, a, self),
 
@@ -219,7 +219,7 @@ impl Key {
                 target_arch = "aarch64",
                 target_arch = "arm",
                 target_arch = "x86_64",
-                target_arch = "x86"
+                all(target_arch = "x86", target_feature = "sse2")
             ))]
             Implementation::HWAES => {
                 ctr32_encrypt_blocks!(aes_hw_ctr32_encrypt_blocks, in_out, src, &self.inner, ctr)
@@ -263,7 +263,7 @@ impl Key {
                 ctr32_encrypt_blocks!(vpaes_ctr32_encrypt_blocks, in_out, src, &self.inner, ctr)
             }
 
-            #[cfg(target_arch = "x86")]
+            #[cfg(all(target_arch = "x86", target_feature = "sse2"))]
             Implementation::VPAES_BSAES => {
                 super::shift::shift_full_blocks(in_out, src, |input| {
                     self.encrypt_iv_xor_block(ctr.increment(), Block::from(input), cpu_features)
@@ -365,7 +365,7 @@ pub enum Implementation {
         target_arch = "aarch64",
         target_arch = "arm",
         target_arch = "x86_64",
-        target_arch = "x86"
+        all(target_arch = "x86", target_feature = "sse2")
     ))]
     HWAES = 1,
 
@@ -374,7 +374,7 @@ pub enum Implementation {
         target_arch = "aarch64",
         target_arch = "arm",
         target_arch = "x86_64",
-        target_arch = "x86"
+        all(target_arch = "x86", target_feature = "sse2")
     ))]
     VPAES_BSAES = 2,
 
@@ -387,7 +387,7 @@ fn detect_implementation(cpu_features: cpu::Features) -> Implementation {
         target_arch = "aarch64",
         target_arch = "arm",
         target_arch = "x86_64",
-        target_arch = "x86"
+        all(target_arch = "x86", target_feature = "sse2")
     )))]
     let _cpu_features = cpu_features;
 
@@ -398,14 +398,14 @@ fn detect_implementation(cpu_features: cpu::Features) -> Implementation {
         }
     }
 
-    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+    #[cfg(any(target_arch = "x86_64", all(target_arch = "x86", target_feature = "sse2")))]
     {
         if cpu::intel::AES.available(cpu_features) {
             return Implementation::HWAES;
         }
     }
 
-    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+    #[cfg(any(target_arch = "x86_64", all(target_arch = "x86", target_feature = "sse2")))]
     {
         if cpu::intel::SSSE3.available(cpu_features) {
             return Implementation::VPAES_BSAES;

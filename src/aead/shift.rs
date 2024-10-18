@@ -14,7 +14,7 @@
 
 use super::block::{Block, BLOCK_LEN};
 
-#[cfg(target_arch = "x86")]
+#[cfg(all(target_arch = "x86", target_feature = "sse2"))]
 pub fn shift_full_blocks<F>(in_out: &mut [u8], src: core::ops::RangeFrom<usize>, mut transform: F)
 where
     F: FnMut(&[u8; BLOCK_LEN]) -> Block,

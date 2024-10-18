@@ -57,7 +57,7 @@ impl Key {
                 target_arch = "aarch64",
                 target_arch = "arm",
                 target_arch = "x86_64",
-                target_arch = "x86"
+                all(target_arch = "x86", target_feature = "sse2")
             ))]
             Implementation::CLMUL => {
                 prefixed_extern! {
@@ -185,7 +185,7 @@ impl Context {
                 target_arch = "aarch64",
                 target_arch = "arm",
                 target_arch = "x86_64",
-                target_arch = "x86"
+                all(target_arch = "x86", target_feature = "sse2")
             ))]
             Implementation::CLMUL => {
                 prefixed_extern! {
@@ -236,7 +236,7 @@ impl Context {
                 target_arch = "aarch64",
                 target_arch = "arm",
                 target_arch = "x86_64",
-                target_arch = "x86"
+                all(target_arch = "x86", target_feature = "sse2")
             ))]
             Implementation::CLMUL => {
                 prefixed_extern! {
@@ -339,7 +339,7 @@ enum Implementation {
         target_arch = "aarch64",
         target_arch = "arm",
         target_arch = "x86_64",
-        target_arch = "x86"
+        all(target_arch = "x86", target_feature = "sse2")
     ))]
     CLMUL,
 
@@ -356,7 +356,7 @@ fn detect_implementation(cpu_features: cpu::Features) -> Implementation {
         target_arch = "aarch64",
         target_arch = "arm",
         target_arch = "x86_64",
-        target_arch = "x86"
+        all(target_arch = "x86", target_feature = "sse2")
     )))]
     let _cpu_features = cpu_features;
 
@@ -367,7 +367,7 @@ fn detect_implementation(cpu_features: cpu::Features) -> Implementation {
         }
     }
 
-    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+    #[cfg(any(target_arch = "x86_64", all(target_arch = "x86", target_feature = "sse2")))]
     {
         if cpu::intel::FXSR.available(cpu_features) && cpu::intel::PCLMULQDQ.available(cpu_features)
         {

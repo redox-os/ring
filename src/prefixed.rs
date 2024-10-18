@@ -44,7 +44,7 @@ macro_rules! prefixed_extern {
 #[cfg(not(any(
     target_arch = "aarch64",
     target_arch = "arm",
-    target_arch = "x86",
+    all(target_arch = "x86", target_feature = "sse2"),
     target_arch = "x86_64"
 )))]
 macro_rules! prefixed_export {

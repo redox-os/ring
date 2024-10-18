@@ -27,13 +27,13 @@ pub(crate) fn features() -> Features {
     #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
     use arm::init_global_shared_with_assembly;
 
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[cfg(any(all(target_arch = "x86", target_feature = "sse2"), target_arch = "x86_64"))]
     use intel::init_global_shared_with_assembly;
 
     #[cfg(any(
         target_arch = "aarch64",
         target_arch = "arm",
-        target_arch = "x86",
+        all(target_arch = "x86", target_feature = "sse2"),
         target_arch = "x86_64",
     ))]
     {
@@ -47,5 +47,5 @@ pub(crate) fn features() -> Features {
 #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
 pub mod arm;
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(any(all(target_arch = "x86", target_feature = "sse2"), target_arch = "x86_64"))]
 pub mod intel;

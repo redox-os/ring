@@ -128,7 +128,7 @@ unsafe fn mul_mont(
 #[cfg(not(any(
     target_arch = "aarch64",
     target_arch = "arm",
-    target_arch = "x86",
+    all(target_arch = "x86", target_feature = "sse2"),
     target_arch = "x86_64"
 )))]
 // TODO: Stop calling this from C and un-export it.
@@ -168,7 +168,7 @@ prefixed_export! {
     not(any(
         target_arch = "aarch64",
         target_arch = "arm",
-        target_arch = "x86",
+        all(target_arch = "x86", target_feature = "sse2"),
         target_arch = "x86_64"
     ))
 ))]
@@ -201,7 +201,7 @@ pub(super) fn limbs_from_mont_in_place(r: &mut [Limb], tmp: &mut [Limb], m: &[Li
 #[cfg(not(any(
     target_arch = "aarch64",
     target_arch = "arm",
-    target_arch = "x86",
+    all(target_arch = "x86", target_feature = "sse2"),
     target_arch = "x86_64"
 )))]
 fn limbs_mul(r: &mut [Limb], a: &[Limb], b: &[Limb]) {
@@ -223,7 +223,7 @@ fn limbs_mul(r: &mut [Limb], a: &[Limb], b: &[Limb]) {
         target_arch = "aarch64",
         target_arch = "arm",
         target_arch = "x86_64",
-        target_arch = "x86"
+        all(target_arch = "x86", target_feature = "sse2")
     ))
 ))]
 prefixed_extern! {
@@ -236,7 +236,7 @@ prefixed_extern! {
     target_arch = "aarch64",
     target_arch = "arm",
     target_arch = "x86_64",
-    target_arch = "x86"
+    all(target_arch = "x86", target_feature = "sse2")
 ))]
 prefixed_extern! {
     // `r` and/or 'a' and/or 'b' may alias.

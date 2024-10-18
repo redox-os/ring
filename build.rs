@@ -427,7 +427,7 @@ fn build_c_code(
 
     generate_prefix_symbols_asm_headers(out_dir, ring_core_prefix).unwrap();
 
-    let (asm_srcs, obj_srcs) = if let Some(asm_target) = asm_target {
+    let (mut asm_srcs, mut obj_srcs) = if let Some(asm_target) = asm_target {
         let perlasm_src_dsts = perlasm_src_dsts(asm_dir, asm_target);
 
         if !use_pregenerated {
@@ -450,6 +450,21 @@ fn build_c_code(
     } else {
         (vec![], vec![])
     };
+
+    use std::env;
+
+    if target.arch == "x86" {
+        let mut havesse2 = false;
+        for target_feature in env::var("CARGO_CFG_TARGET_FEATURE").unwrap_or("".to_string()).split(",") {
+            if target_feature == "sse2" {
+                havesse2 = true;
+            }
+        }
+        if !havesse2 {
+            asm_srcs = vec![];
+            obj_srcs = vec![];
+        }
+    }
 
     let core_srcs = sources_for_arch(&target.arch)
         .into_iter()
