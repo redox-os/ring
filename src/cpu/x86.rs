@@ -27,8 +27,10 @@ mod abi_assumptions {
     // https://github.com/briansmith/ring/issues/1793#issuecomment-1793243725,
     // https://github.com/briansmith/ring/issues/1832,
     // https://github.com/briansmith/ring/issues/1833.
-    const _ASSUMES_SSE2: () =
-        assert!(cfg!(target_feature = "sse") && cfg!(target_feature = "sse2"));
+    // ---
+    // Redox OS: commented out to support i586 where SSE is not available
+    //  const _ASSUMES_SSE2: () =
+    //  assert!(cfg!(target_feature = "sse") && cfg!(target_feature = "sse2"));
 
     const _ASSUMED_POINTER_SIZE: usize = 4;
     const _ASSUMED_USIZE_SIZE: () = assert!(size_of::<usize>() == _ASSUMED_POINTER_SIZE);
@@ -146,8 +148,10 @@ fn cpuid_to_caps_and_set_c_flags(r: CpuidSummary) -> u32 {
     // CMOV, it is likely that some of our timing side channel prevention does
     // not work. Presumably the people who delete these are verifying that it
     // all works fine.
-    const _SSE_REQUIRED: () = assert!(cfg!(target_feature = "sse"));
-    const _SSE2_REQUIRED: () = assert!(cfg!(target_feature = "sse2"));
+    // ---
+    // Redox OS: commented out to support i586 where SSE is not available
+    // const _SSE_REQUIRED: () = assert!(cfg!(target_feature = "sse"));
+    // const _SSE2_REQUIRED: () = assert!(cfg!(target_feature = "sse2"));
 
     #[cfg(not(target_feature = "sse2"))]
     {
@@ -162,7 +166,6 @@ fn cpuid_to_caps_and_set_c_flags(r: CpuidSummary) -> u32 {
         // usually `-none-` targets, will not support dynamically-detected use
         // of SIMD registers via CPUID. A whole different mechanism is needed
         // to support them. Same for i*86-*-none targets.
-        let leaf1_edx = cpuid[0];
         let sse1_available = check(leaf1_edx, 25);
         let sse2_available = check(leaf1_edx, 26);
         if sse1_available && sse2_available {
